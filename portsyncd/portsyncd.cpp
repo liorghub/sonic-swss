@@ -43,7 +43,7 @@ void usage()
 }
 
 void handlePortConfigFile(ProducerStateTable &p, string file, bool warm);
-bool handlePortConfigFromConfigDB(ProducerStateTable &p, DBConnector &cfgDb, bool warm);
+void handlePortConfigFromConfigDB(ProducerStateTable &p, DBConnector &cfgDb, bool warm);
 void handleVlanIntfFile(string file);
 void handlePortConfig(ProducerStateTable &p, map<string, KeyOpFieldsValuesTuple> &port_cfg_map);
 void checkPortInitDone(DBConnector *appl_db);
@@ -86,10 +86,7 @@ int main(int argc, char **argv)
         netlink.dumpRequest(RTM_GETLINK);
         cout << "Listen to link messages..." << endl;
 
-        if (!handlePortConfigFromConfigDB(p, cfgDb, warm))
-        {
-            SWSS_LOG_NOTICE("Config DB does not contain ports");
-        }
+        handlePortConfigFromConfigDB(p, cfgDb, warm);
 
         LinkSync sync(&appl_db, &state_db);
         NetDispatcher::getInstance().registerMessageHandler(RTM_NEWLINK, &sync);
@@ -190,7 +187,7 @@ static void notifyPortConfigDone(ProducerStateTable &p)
     p.set("PortConfigDone", attrs);
 }
 
-bool handlePortConfigFromConfigDB(ProducerStateTable &p, DBConnector &cfgDb, bool warm)
+void handlePortConfigFromConfigDB(ProducerStateTable &p, DBConnector &cfgDb, bool warm)
 {
     SWSS_LOG_ENTER();
 
@@ -203,31 +200,33 @@ bool handlePortConfigFromConfigDB(ProducerStateTable &p, DBConnector &cfgDb, boo
 
     if (keys.empty())
     {
-        cout << "No port configuration in ConfigDB" << endl;
-        return false;
+        SWSS_LOG_NOTICE("There are no ports in Config DB");
+    }
+    else
+    {
+        for ( auto &k : keys )
+        {
+            table.get(k, ovalues);
+            vector<FieldValueTuple> attrs;
+            for ( auto &v : ovalues )
+            {
+                FieldValueTuple attr(v.first, v.second);
+                attrs.push_back(attr);
+            }
+            if (!warm)
+            {
+                p.set(k, attrs);
+            }
+            g_portSet.insert(k);
+        }
     }
 
-    for ( auto &k : keys )
-    {
-        table.get(k, ovalues);
-        vector<FieldValueTuple> attrs;
-        for ( auto &v : ovalues )
-        {
-            FieldValueTuple attr(v.first, v.second);
-            attrs.push_back(attr);
-        }
-        if (!warm)
-        {
-            p.set(k, attrs);
-        }
-        g_portSet.insert(k);
-    }
     if (!warm)
     {
         notifyPortConfigDone(p);
     }
 
-    return true;
+    return;
 }
 
 void handlePortConfig(ProducerStateTable &p, map<string, KeyOpFieldsValuesTuple> &port_cfg_map)
